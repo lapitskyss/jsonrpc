@@ -1,65 +1,57 @@
 package jsonrpc
 
 import (
-	"io/ioutil"
-	"net/http"
+	"bytes"
 	"strings"
 	"sync"
 
 	"github.com/goccy/go-json"
+	"github.com/valyala/fasthttp"
 )
 
-// HandleFastHTTP process incoming requests
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
+// HandleFastHTTP process incoming requests.
+func (s *Server) HandleFastHTTP(ctx *fasthttp.RequestCtx) {
+	if !ctx.IsPost() {
+		ctx.SetStatusCode(fasthttp.StatusMethodNotAllowed)
 		return
 	}
 
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), s.options.ContentType) {
-		w.WriteHeader(http.StatusUnsupportedMediaType)
+	if !bytes.HasPrefix(ctx.Request.Header.Peek("Content-Type"), s.options.ContentType) {
+		ctx.SetStatusCode(fasthttp.StatusUnsupportedMediaType)
 		return
 	}
 
 	// parse request
-	requests, err := s.parseRequest(r)
+	requests, err := s.parseRequest(ctx)
 	if err != nil {
-		sendSingleErrorResponse(w, err)
+		sendSingleErrorResponse(ctx, err)
 		return
 	}
 
 	// call global middlewares
 	for i := len(s.middlewaresGlobal) - 1; i >= 0; i-- {
-		e := s.middlewaresGlobal[i](r)
+		e := s.middlewaresGlobal[i](ctx)
 		if e != nil {
-			sendSingleErrorResponse(w, e)
+			sendSingleErrorResponse(ctx, err)
 			return
 		}
 	}
 
 	// process all requests
-	response := s.processRequests(r, requests)
+	response := s.processRequests(ctx, requests)
 	if response == nil {
-		w.WriteHeader(http.StatusOK)
+		ctx.SetStatusCode(fasthttp.StatusOK)
 		return
 	}
 
-	sendResponse(w, response)
+	sendResponse(ctx, response)
 	return
 }
 
-func (s *Server) parseRequest(r *http.Request) ([]Request, *Error) {
+func (s *Server) parseRequest(ctx *fasthttp.RequestCtx) ([]Request, *Error) {
 	var requests []Request
 
-	b, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return nil, ErrInvalidRequest()
-	}
-
-	err = r.Body.Close()
-	if err != nil {
-		return nil, ErrInternal()
-	}
+	b := ctx.Request.Body()
 
 	if len(b) == 0 {
 		return nil, ErrInvalidRequest()
@@ -86,7 +78,7 @@ func (s *Server) parseRequest(r *http.Request) ([]Request, *Error) {
 	return requests, nil
 }
 
-func (s *Server) processRequests(r *http.Request, req []Request) []*Response {
+func (s *Server) processRequests(ctx *fasthttp.RequestCtx, req []Request) []*Response {
 	reqLen := len(req)
 	respChan := make(chan *Response, reqLen)
 
@@ -95,7 +87,7 @@ func (s *Server) processRequests(r *http.Request, req []Request) []*Response {
 
 	for i := range req {
 		go func(req Request) {
-			respChan <- s.processRequest(r, req)
+			respChan <- s.processRequest(ctx, req)
 			wg.Done()
 		}(req[i])
 	}
@@ -117,7 +109,7 @@ func (s *Server) processRequests(r *http.Request, req []Request) []*Response {
 	return responses
 }
 
-func (s *Server) processRequest(r *http.Request, request Request) *Response {
+func (s *Server) processRequest(ctx *fasthttp.RequestCtx, request Request) *Response {
 	if request.Version != Version || request.Method == "" {
 		return &Response{
 			Version: Version,
@@ -147,7 +139,7 @@ func (s *Server) processRequest(r *http.Request, request Request) *Response {
 	}
 
 	requestCtx := &RequestCtx{
-		R:       r,
+		R:       ctx,
 		ID:      getRequestId(request.ID),
 		Version: Version,
 		params:  request.Params,

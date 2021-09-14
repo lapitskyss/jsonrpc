@@ -2,8 +2,9 @@ package jsonrpc
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
+
+	"github.com/valyala/fasthttp"
 )
 
 const (
@@ -15,7 +16,7 @@ const (
 type (
 	Handler              func(*RequestCtx) (Result, *Error)
 	MiddlewareFunc       func(Handler) Handler
-	MiddlewareGlobalFunc func(*http.Request) *Error
+	MiddlewareGlobalFunc func(*fasthttp.RequestCtx) *Error
 )
 
 type Server struct {
@@ -32,7 +33,7 @@ type Service struct {
 
 type Options struct {
 	BatchMaxLen int
-	ContentType string
+	ContentType []byte
 }
 
 // NewServer create server with provided options
@@ -41,8 +42,8 @@ func NewServer(opts Options) *Server {
 		opts.BatchMaxLen = defaultBatchMaxLen
 	}
 
-	if opts.ContentType == "" {
-		opts.ContentType = contentTypeJSON
+	if opts.ContentType == nil || len(opts.ContentType) == 0 {
+		opts.ContentType = []byte(contentTypeJSON)
 	}
 
 	return &Server{

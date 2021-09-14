@@ -1,14 +1,14 @@
 package jsonrpc
 
 import (
-	"net/http"
 	"sync"
 
 	"github.com/goccy/go-json"
+	"github.com/valyala/fasthttp"
 )
 
 type RequestCtx struct {
-	R       *http.Request
+	R       *fasthttp.RequestCtx
 	ID      *string
 	Version string
 	params  json.RawMessage

@@ -2,12 +2,17 @@ package jsonrpc
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttputil"
 )
 
 func TestServeHTTP(t *testing.T) {
@@ -15,9 +20,6 @@ func TestServeHTTP(t *testing.T) {
 
 	sumService := SumService{}
 	rpc.Register("sum", sumService.sum)
-
-	ts := httptest.NewServer(http.HandlerFunc(rpc.ServeHTTP))
-	defer ts.Close()
 
 	var tc = []struct {
 		name, in, out string
@@ -61,24 +63,28 @@ func TestServeHTTP(t *testing.T) {
 
 	for _, c := range tc {
 		t.Run(c.name, func(t *testing.T) {
-			res, err := http.Post(ts.URL, "application/json", bytes.NewBufferString(c.in))
+			r, err := http.NewRequest("POST", "http://test/", bytes.NewBufferString(c.in))
+			if err != nil {
+				require.NoError(t, err)
+			}
+			r.Header.Set("Content-Type", "application/json")
+
+			res, err := serve(rpc.HandleFastHTTP, r)
 			if err != nil {
 				require.NoError(t, err)
 			}
 
-			resp, err := ioutil.ReadAll(res.Body)
-			if err != nil {
-				require.NoError(t, err)
-			}
-			err = res.Body.Close()
+			body, err := ioutil.ReadAll(res.Body)
 			if err != nil {
 				require.NoError(t, err)
 			}
 
-			if c.out == "" {
-				require.Equal(t, c.out, string(resp))
+			result := string(body)
+
+			if result == "" {
+				require.Equal(t, c.out, result)
 			} else {
-				require.JSONEq(t, c.out, string(resp))
+				require.JSONEq(t, c.out, result)
 			}
 		})
 	}
@@ -90,30 +96,37 @@ func BenchmarkServeHTTP(b *testing.B) {
 	sumService := SumService{}
 	rpc.Register("sum", sumService.sum)
 
-	var tc = []struct {
-		name, in string
-	}{
-		{
-			name: "OK",
-			in:   `{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4], "id": "1" }`,
-		},
+	buf := &bytes.Buffer{}
+	buf.WriteString(`[{"jsonrpc":"2.0","method":"sum","params":[1, 2, 3, 4],"id":1}, {"jsonrpc":"2.0","method":"sum","params":[1, 2],"id":2}]`)
+	body := buf.Bytes()
+
+	ctx := &fasthttp.RequestCtx{
+		Request:  fasthttp.Request{},
+		Response: fasthttp.Response{},
 	}
+	ctx.Request.Header.SetMethod(fasthttp.MethodPost)
+	ctx.Request.Header.SetContentType("application/json")
+	ctx.Request.SetBody(body)
 
-	for _, c := range tc {
-		b.Run("route:"+c.name, func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
+	b.ReportAllocs()
+	b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
-				b.StopTimer()
-				w := httptest.NewRecorder()
-				r, _ := http.NewRequest("POST", "/", bytes.NewBufferString(c.in))
-				r.Header.Set("Content-Type", "application/json")
-				b.StartTimer()
+	fasthttp.AcquireRequest()
 
-				rpc.ServeHTTP(w, r)
-			}
-		})
+	for i := 0; i < b.N; i++ {
+		rpc.HandleFastHTTP(ctx)
+	}
+}
+
+func BenchmarkGetRequestId(b *testing.B) {
+	message := json.RawMessage(`"123"`)
+	id := &message
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		getRequestId(id)
 	}
 }
 
@@ -133,4 +146,26 @@ func (ss *SumService) sum(ctx *RequestCtx) (Result, *Error) {
 	}
 
 	return s, nil
+}
+
+func serve(handler fasthttp.RequestHandler, req *http.Request) (*http.Response, error) {
+	ln := fasthttputil.NewInmemoryListener()
+	defer ln.Close()
+
+	go func() {
+		err := fasthttp.Serve(ln, handler)
+		if err != nil {
+			panic(fmt.Errorf("failed to serve: %v", err))
+		}
+	}()
+
+	client := http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return ln.Dial()
+			},
+		},
+	}
+
+	return client.Do(req)
 }

@@ -2,9 +2,9 @@ package jsonrpc
 
 import (
 	"bytes"
-	"net/http"
 
 	"github.com/goccy/go-json"
+	"github.com/valyala/fasthttp"
 )
 
 type Response struct {
@@ -17,7 +17,7 @@ type Response struct {
 type Result interface{}
 
 // sendResponse send success JSON response
-func sendResponse(w http.ResponseWriter, r []*Response) {
+func sendResponse(ctx *fasthttp.RequestCtx, r []*Response) {
 	for i := range r {
 		if r[i].Error == nil && r[i].Result == nil {
 			r[i].Result = json.RawMessage(nil)
@@ -28,42 +28,39 @@ func sendResponse(w http.ResponseWriter, r []*Response) {
 
 	if len(r) == 1 {
 		if err := json.NewEncoder(buf).Encode(r[0]); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 			return
 		}
 	} else if len(r) > 1 {
 		if err := json.NewEncoder(buf).Encode(r); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+			ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 			return
 		}
 	} else {
-		w.WriteHeader(http.StatusInternalServerError)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(buf.Bytes())
+	ctx.Response.Header.SetContentType("application/json; charset=utf-8")
+	ctx.Response.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBodyRaw(buf.Bytes())
 }
 
 // sendResponse send single error JSON response
-func sendSingleErrorResponse(w http.ResponseWriter, e *Error) {
+func sendSingleErrorResponse(ctx *fasthttp.RequestCtx, error *Error) {
 	buf := &bytes.Buffer{}
-	enc := json.NewEncoder(buf)
-	enc.SetEscapeHTML(true)
-
 	response := &Response{
 		Version: Version,
 		ID:      nil,
-		Error:   e,
+		Error:   error,
 	}
 
-	if err := enc.Encode(response); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if err := json.NewEncoder(buf).Encode(response); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(buf.Bytes())
+	ctx.Response.Header.SetContentType("application/json; charset=utf-8")
+	ctx.Response.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBodyRaw(buf.Bytes())
 }

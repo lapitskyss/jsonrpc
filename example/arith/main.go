@@ -2,11 +2,10 @@ package main
 
 import (
 	"log"
-	"net/http"
 
 	"github.com/lapitskyss/jsonrpc"
 	"github.com/lapitskyss/jsonrpc/middleware"
-	"github.com/lapitskyss/jsonrpc/middleware_global"
+	"github.com/valyala/fasthttp"
 )
 
 type SumService struct {
@@ -32,12 +31,17 @@ func main() {
 
 	s := jsonrpc.NewServer(jsonrpc.Options{})
 
-	s.UseGlobal(middleware_global.RealIP())
 	s.Use(middleware.Recovery())
-
 	s.Register("sum", sumService.Sum)
 
-	http.Handle("/rpc", s)
+	m := func(ctx *fasthttp.RequestCtx) {
+		switch string(ctx.Path()) {
+		case "/rpc":
+			s.HandleFastHTTP(ctx)
+		default:
+			ctx.Error("not found", fasthttp.StatusNotFound)
+		}
+	}
 
-	log.Fatal(http.ListenAndServe(":3000", nil))
+	log.Fatal(fasthttp.ListenAndServe(":3000", m))
 }
