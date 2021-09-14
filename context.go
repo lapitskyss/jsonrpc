@@ -16,6 +16,8 @@ type RequestCtx struct {
 	Keys    map[string]interface{}
 }
 
+// Params decode request params
+// return ErrInvalidParams if can not decode it
 func (ctx *RequestCtx) Params(v interface{}) *Error {
 	if err := json.Unmarshal(ctx.params, v); err != nil {
 		return ErrInvalidParams()
@@ -23,6 +25,7 @@ func (ctx *RequestCtx) Params(v interface{}) *Error {
 	return nil
 }
 
+// Set store a new key/value pair
 func (ctx *RequestCtx) Set(key string, value interface{}) {
 	ctx.mu.Lock()
 	if ctx.Keys == nil {
@@ -33,6 +36,7 @@ func (ctx *RequestCtx) Set(key string, value interface{}) {
 	ctx.mu.Unlock()
 }
 
+// Get returns the value for the given key,
 func (ctx *RequestCtx) Get(key string) (value interface{}, exists bool) {
 	ctx.mu.RLock()
 	value, exists = ctx.Keys[key]

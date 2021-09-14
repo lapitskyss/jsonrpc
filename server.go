@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 )
@@ -34,6 +35,7 @@ type Options struct {
 	ContentType string
 }
 
+// NewServer create server with provided options
 func NewServer(opts Options) *Server {
 	if opts.BatchMaxLen == 0 {
 		opts.BatchMaxLen = defaultBatchMaxLen
@@ -49,24 +51,36 @@ func NewServer(opts Options) *Server {
 	}
 }
 
+// Register new method
 func (s *Server) Register(method string, h Handler) *Service {
+	if method == "" {
+		panic("can not register service with empty method")
+	}
+
+	methodName := strings.ToLower(method)
+	if _, ok := s.services[methodName]; ok {
+		panic(fmt.Sprintf(`service with name "%s" already exist`, methodName))
+	}
 	service := &Service{
 		handler: h,
 	}
 
-	s.services[strings.ToLower(method)] = service
+	s.services[methodName] = service
 
 	return service
 }
 
+// Use appends a middleware handler
 func (s *Server) Use(middlewares ...MiddlewareFunc) {
 	s.middlewares = append(s.middlewares, middlewares...)
 }
 
+// UseGlobal appends a middleware handler. This middleware call ones for all batch requests
 func (s *Server) UseGlobal(mGlobal ...MiddlewareGlobalFunc) {
 	s.middlewaresGlobal = append(s.middlewaresGlobal, mGlobal...)
 }
 
+// Use appends a middleware handler to service
 func (service *Service) Use(middlewares ...MiddlewareFunc) {
 	service.middlewares = append(service.middlewares, middlewares...)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/goccy/go-json"
 )
 
+// HandleFastHTTP process incoming requests
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -85,24 +86,24 @@ func (s *Server) parseRequest(r *http.Request) ([]Request, *Error) {
 	return requests, nil
 }
 
-func (s *Server) processRequests(r *http.Request, requests []Request) []Response {
-	reqLen := len(requests)
-	respChan := make(chan Response, reqLen)
+func (s *Server) processRequests(r *http.Request, req []Request) []*Response {
+	reqLen := len(req)
+	respChan := make(chan *Response, reqLen)
 
 	var wg sync.WaitGroup
 	wg.Add(reqLen)
 
-	for _, req := range requests {
+	for i := range req {
 		go func(req Request) {
 			respChan <- s.processRequest(r, req)
 			wg.Done()
-		}(req)
+		}(req[i])
 	}
 
 	wg.Wait()
 	close(respChan)
 
-	responses := make([]Response, 0, reqLen)
+	responses := make([]*Response, 0, reqLen)
 	for resp := range respChan {
 		if resp.ID != nil {
 			responses = append(responses, resp)
@@ -116,9 +117,9 @@ func (s *Server) processRequests(r *http.Request, requests []Request) []Response
 	return responses
 }
 
-func (s *Server) processRequest(r *http.Request, request Request) Response {
+func (s *Server) processRequest(r *http.Request, request Request) *Response {
 	if request.Version != Version || request.Method == "" {
-		return Response{
+		return &Response{
 			Version: Version,
 			ID:      request.ID,
 			Error:   ErrInvalidRequest(),
@@ -128,7 +129,7 @@ func (s *Server) processRequest(r *http.Request, request Request) Response {
 	method := strings.ToLower(request.Method)
 	service, ok := s.services[method]
 	if !ok {
-		return Response{
+		return &Response{
 			Version: Version,
 			ID:      request.ID,
 			Error:   ErrMethodNotFound(),
@@ -153,7 +154,7 @@ func (s *Server) processRequest(r *http.Request, request Request) Response {
 	}
 	result, err := f(requestCtx)
 
-	return Response{
+	return &Response{
 		Version: Version,
 		ID:      request.ID,
 		Result:  result,
@@ -164,7 +165,17 @@ func (s *Server) processRequest(r *http.Request, request Request) Response {
 func getRequestId(id *json.RawMessage) *string {
 	var result *string
 	if id != nil {
-		str := strings.Trim(string(*id), `"`)
+		bts := *id
+		length := len(bts)
+		if length == 0 {
+			return nil
+		}
+
+		if bts[0] == '"' {
+			bts = bts[1 : length-1]
+		}
+
+		str := string(bts)
 		result = &str
 	}
 

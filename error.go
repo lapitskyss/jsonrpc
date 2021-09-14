@@ -15,14 +15,12 @@ const (
 	ErrorCodeInternal int = -32603
 )
 
-type (
-	// An Error is a wrapper for a JSON interface value.
-	Error struct {
-		Code    int         `json:"code"`
-		Message string      `json:"message"`
-		Data    interface{} `json:"data,omitempty"`
-	}
-)
+// An Error is a wrapper for a JSON interface value.
+type Error struct {
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
+}
 
 // Error implements error interface.
 func (e *Error) Error() string {

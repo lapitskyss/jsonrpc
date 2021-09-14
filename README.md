@@ -53,23 +53,19 @@ curl -H "Content-Type: application/json" \
   --request POST \
   --data '{"jsonrpc":"2.0","method":"sum","params":[1, 2, 3, 4],"id":1}' \
   http://localhost:3000/rpc
-```
-- response for request:
-```
+
+ response for request:
+
 {"jsonrpc":"2.0","id":1,"result":10}
 ```
 
-### RequestCtx
-```go
-func (ss *SumService) Sum(ctx *jsonrpc.RequestCtx) (jsonrpc.Result, *jsonrpc.Error) {
-	request := ctx.R // *http.Request   
-	ID := ctx.ID // json rpc id
-	Version := ctx.Version // json rpc version
-
-	// set new key/value for request context
-	ctx.Set("user", "1")
-
-	// get value
-	user, ok := ctx.Get("user")
-}
+### Batch request
 ```
+curl -H "Content-Type: application/json" \
+  --request POST \
+  --data '[{"jsonrpc":"2.0","method":"sum","params":[1, 2, 3, 4],"id":1}, {"jsonrpc":"2.0","method":"sum","params":[1, 2],"id":2}]' \
+  http://localhost:3000/rpc
+
+response for request:
+
+[{"jsonrpc":"2.0","id":2,"result":3},{"jsonrpc":"2.0","id":1,"result":10}]

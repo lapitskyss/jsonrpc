@@ -16,17 +16,23 @@ type Response struct {
 
 type Result interface{}
 
-func sendResponse(w http.ResponseWriter, r []Response) {
+// sendResponse send success JSON response
+func sendResponse(w http.ResponseWriter, r []*Response) {
+	for i := range r {
+		if r[i].Error == nil && r[i].Result == nil {
+			r[i].Result = json.RawMessage(nil)
+		}
+	}
+
 	buf := &bytes.Buffer{}
-	enc := json.NewEncoder(buf)
-	enc.SetEscapeHTML(true)
+
 	if len(r) == 1 {
-		if err := enc.Encode(r[0]); err != nil {
+		if err := json.NewEncoder(buf).Encode(r[0]); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	} else if len(r) > 1 {
-		if err := enc.Encode(r); err != nil {
+		if err := json.NewEncoder(buf).Encode(r); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -40,6 +46,7 @@ func sendResponse(w http.ResponseWriter, r []Response) {
 	_, _ = w.Write(buf.Bytes())
 }
 
+// sendResponse send single error JSON response
 func sendSingleErrorResponse(w http.ResponseWriter, e *Error) {
 	buf := &bytes.Buffer{}
 	enc := json.NewEncoder(buf)
