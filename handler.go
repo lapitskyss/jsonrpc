@@ -48,8 +48,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-func (s *Server) parseRequest(r *http.Request) ([]Request, *Error) {
-	var requests []Request
+func (s *Server) parseRequest(r *http.Request) ([]*Request, *Error) {
+	var requests []*Request
 
 	b, err := ioutil.ReadAll(r.Body)
 	if err != nil {
@@ -66,7 +66,7 @@ func (s *Server) parseRequest(r *http.Request) ([]Request, *Error) {
 	}
 
 	if b[0] != '[' {
-		var req Request
+		var req *Request
 		if err := json.Unmarshal(b, &req); err != nil {
 			return nil, ErrParse()
 		}
@@ -86,7 +86,7 @@ func (s *Server) parseRequest(r *http.Request) ([]Request, *Error) {
 	return requests, nil
 }
 
-func (s *Server) processRequests(r *http.Request, req []Request) []*Response {
+func (s *Server) processRequests(r *http.Request, req []*Request) []*Response {
 	reqLen := len(req)
 	respChan := make(chan *Response, reqLen)
 
@@ -94,7 +94,7 @@ func (s *Server) processRequests(r *http.Request, req []Request) []*Response {
 	wg.Add(reqLen)
 
 	for i := range req {
-		go func(req Request) {
+		go func(req *Request) {
 			respChan <- s.processRequest(r, req)
 			wg.Done()
 		}(req[i])
@@ -117,7 +117,7 @@ func (s *Server) processRequests(r *http.Request, req []Request) []*Response {
 	return responses
 }
 
-func (s *Server) processRequest(r *http.Request, request Request) *Response {
+func (s *Server) processRequest(r *http.Request, request *Request) *Response {
 	if request.Version != Version || request.Method == "" {
 		return &Response{
 			Version: Version,
