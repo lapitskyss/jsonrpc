@@ -1,11 +1,5 @@
 package jsonrpc
 
-import (
-	"fmt"
-	"net/http"
-	"strings"
-)
-
 const (
 	Version            = "2.0"
 	defaultBatchMaxLen = 10
@@ -13,19 +7,18 @@ const (
 )
 
 type (
-	Handler              func(*RequestCtx) (Result, *Error)
-	MiddlewareFunc       func(Handler) Handler
-	MiddlewareGlobalFunc func(*http.Request) *Error
+	Handler        func(*RequestCtx) (Result, Error)
+	MiddlewareFunc func(Handler) Handler
 )
 
 type Server struct {
-	options           Options
-	services          map[string]*Service
-	middlewares       []MiddlewareFunc
-	middlewaresGlobal []MiddlewareGlobalFunc
+	options     Options
+	services    []*Service
+	middlewares []MiddlewareFunc
 }
 
 type Service struct {
+	name        string
 	handler     Handler
 	middlewares []MiddlewareFunc
 }
@@ -35,7 +28,7 @@ type Options struct {
 	ContentType string
 }
 
-// NewServer create server with provided options
+// NewServer create server with provided options.
 func NewServer(opts Options) *Server {
 	if opts.BatchMaxLen == 0 {
 		opts.BatchMaxLen = defaultBatchMaxLen
@@ -46,41 +39,43 @@ func NewServer(opts Options) *Server {
 	}
 
 	return &Server{
-		services: make(map[string]*Service),
-		options:  opts,
+		options: opts,
 	}
 }
 
-// Register new method
+// Register new json rpc method.
 func (s *Server) Register(method string, h Handler) *Service {
 	if method == "" {
 		panic("can not register service with empty method")
 	}
 
-	methodName := strings.ToLower(method)
-	if _, ok := s.services[methodName]; ok {
-		panic(fmt.Sprintf(`service with name "%s" already exist`, methodName))
-	}
 	service := &Service{
+		name:    method,
 		handler: h,
 	}
 
-	s.services[methodName] = service
+	s.services = append(s.services, service)
 
 	return service
 }
 
-// Use appends a middleware handler
+// GetService get registered service by method name.
+func (s *Server) GetService(method string) *Service {
+	for _, service := range s.services {
+		if service.name == method {
+			return service
+		}
+	}
+
+	return nil
+}
+
+// Use appends a middleware handler to server. This middleware call for each service request.
 func (s *Server) Use(middlewares ...MiddlewareFunc) {
 	s.middlewares = append(s.middlewares, middlewares...)
 }
 
-// UseGlobal appends a middleware handler. This middleware call ones for all batch requests
-func (s *Server) UseGlobal(mGlobal ...MiddlewareGlobalFunc) {
-	s.middlewaresGlobal = append(s.middlewaresGlobal, mGlobal...)
-}
-
-// Use appends a middleware handler to service
+// Use appends a middleware handler to service. This middleware call just for service.
 func (service *Service) Use(middlewares ...MiddlewareFunc) {
 	service.middlewares = append(service.middlewares, middlewares...)
 }

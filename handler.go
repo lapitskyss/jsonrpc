@@ -1,15 +1,17 @@
 package jsonrpc
 
 import (
-	"io/ioutil"
+	"bytes"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
 
-	"github.com/goccy/go-json"
+	"github.com/lapitskyss/jsonrpc/jparser"
+	"github.com/tidwall/gjson"
 )
 
-// HandleFastHTTP process incoming requests
+// ServeHTTP process incoming requests.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -21,119 +23,89 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// parse request
-	requests, err := s.parseRequest(r)
+	json, err := io.ReadAll(r.Body)
 	if err != nil {
-		sendSingleErrorResponse(w, err)
+		sendInternalError(w)
 		return
 	}
 
-	// call global middlewares
-	for i := len(s.middlewaresGlobal) - 1; i >= 0; i-- {
-		e := s.middlewaresGlobal[i](r)
-		if e != nil {
-			sendSingleErrorResponse(w, e)
+	if len(json) == 0 {
+		sendInvalidRequest(w)
+		return
+	}
+
+	if !gjson.ValidBytes(json) {
+		sendParseError(w)
+		return
+	}
+
+	if jparser.IsArray(json) {
+		batchLen := jparser.ArrayLength(json)
+		if batchLen == 0 {
+			sendParseError(w)
 			return
 		}
-	}
 
-	// process all requests
-	response := s.processRequests(r, requests)
-	if response == nil {
-		w.WriteHeader(http.StatusOK)
+		if batchLen > s.options.BatchMaxLen {
+			sendMaxBatchRequestsError(w)
+			return
+		}
+
+		respChan := make(chan []byte, batchLen)
+
+		var wg sync.WaitGroup
+		wg.Add(batchLen)
+
+		for i := 0; i < batchLen; i++ {
+			data := jparser.ArrayElement(json, i)
+			go func(data []byte) {
+				respChan <- s.handleRequest(r, data)
+				wg.Done()
+			}(data)
+		}
+
+		wg.Wait()
+		close(respChan)
+
+		var buffer bytes.Buffer
+
+		buffer.WriteString("[")
+		for resp := range respChan {
+			buffer.Write(resp)
+			buffer.WriteString(",")
+		}
+
+		response := buffer.Bytes()
+		response[len(response)-1] = ']'
+
+		send(w, response)
+		return
+
+	} else {
+		send(w, s.handleRequest(r, json))
 		return
 	}
-
-	sendResponse(w, response)
-	return
 }
 
-func (s *Server) parseRequest(r *http.Request) ([]*Request, *Error) {
-	var requests []*Request
-
-	b, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return nil, ErrInvalidRequest()
+// handleRequest process incoming request single time.
+func (s *Server) handleRequest(r *http.Request, json []byte) []byte {
+	p := jparser.Parse(json)
+	if p.Error() != nil {
+		return ErrParseJSON()
 	}
 
-	err = r.Body.Close()
-	if err != nil {
-		return nil, ErrInternal()
+	if string(p.Version) != Version {
+		return responseInvalidRequest(p.ID)
 	}
 
-	if len(b) == 0 {
-		return nil, ErrInvalidRequest()
+	method := p.GetMethod()
+	if method == "" {
+		return responseMethodNotFound(p.ID)
 	}
 
-	if b[0] != '[' {
-		var req *Request
-		if err := json.Unmarshal(b, &req); err != nil {
-			return nil, ErrParse()
-		}
-		requests = append(requests, req)
-	} else {
-		if err := json.Unmarshal(b, &requests); err != nil {
-			return nil, ErrParse()
-		}
-	}
-
-	if len(requests) == 0 {
-		return nil, ErrInvalidRequest()
-	} else if len(requests) > s.options.BatchMaxLen {
-		return nil, ErrMaxBatchRequests()
-	}
-
-	return requests, nil
-}
-
-func (s *Server) processRequests(r *http.Request, req []*Request) []*Response {
-	reqLen := len(req)
-	respChan := make(chan *Response, reqLen)
-
-	var wg sync.WaitGroup
-	wg.Add(reqLen)
-
-	for i := range req {
-		go func(req *Request) {
-			respChan <- s.processRequest(r, req)
-			wg.Done()
-		}(req[i])
-	}
-
-	wg.Wait()
-	close(respChan)
-
-	responses := make([]*Response, 0, reqLen)
-	for resp := range respChan {
-		if resp.ID != nil {
-			responses = append(responses, resp)
-		}
-	}
-
-	if len(responses) == 0 {
-		return nil
-	}
-
-	return responses
-}
-
-func (s *Server) processRequest(r *http.Request, request *Request) *Response {
-	if request.Version != Version || request.Method == "" {
-		return &Response{
-			Version: Version,
-			ID:      request.ID,
-			Error:   ErrInvalidRequest(),
-		}
-	}
-
-	method := strings.ToLower(request.Method)
-	service, ok := s.services[method]
-	if !ok {
-		return &Response{
-			Version: Version,
-			ID:      request.ID,
-			Error:   ErrMethodNotFound(),
-		}
+	service := s.GetService(method)
+	if service == nil {
+		return responseMethodNotFound(p.ID)
 	}
 
 	f := service.handler
@@ -147,37 +119,15 @@ func (s *Server) processRequest(r *http.Request, request *Request) *Response {
 	}
 
 	requestCtx := &RequestCtx{
-		R:       r,
-		ID:      getRequestId(request.ID),
-		Version: Version,
-		params:  request.Params,
+		R:      r,
+		ID:     p.GetId(),
+		Params: p.Params,
 	}
+
 	result, err := f(requestCtx)
-
-	return &Response{
-		Version: Version,
-		ID:      request.ID,
-		Result:  result,
-		Error:   err,
-	}
-}
-
-func getRequestId(id *json.RawMessage) *string {
-	var result *string
-	if id != nil {
-		bts := *id
-		length := len(bts)
-		if length == 0 {
-			return nil
-		}
-
-		if bts[0] == '"' {
-			bts = bts[1 : length-1]
-		}
-
-		str := string(bts)
-		result = &str
+	if err != nil {
+		return responseError(p.ID, err)
 	}
 
-	return result
+	return responseResult(p.ID, result)
 }

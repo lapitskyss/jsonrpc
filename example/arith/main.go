@@ -6,17 +6,16 @@ import (
 
 	"github.com/lapitskyss/jsonrpc"
 	"github.com/lapitskyss/jsonrpc/middleware"
-	"github.com/lapitskyss/jsonrpc/middleware_global"
 )
 
 type SumService struct {
 }
 
-func (ss *SumService) Sum(ctx *jsonrpc.RequestCtx) (jsonrpc.Result, *jsonrpc.Error) {
+func (ss *SumService) Sum(ctx *jsonrpc.RequestCtx) (jsonrpc.Result, jsonrpc.Error) {
 	var sumRequest []int
-	err := ctx.Params(&sumRequest)
+	err := ctx.GetParams(&sumRequest)
 	if err != nil {
-		return nil, err
+		return nil, jsonrpc.ErrInvalidParamsJSON()
 	}
 
 	s := 0
@@ -24,15 +23,13 @@ func (ss *SumService) Sum(ctx *jsonrpc.RequestCtx) (jsonrpc.Result, *jsonrpc.Err
 		s += item
 	}
 
-	return s, nil
+	return ctx.Result(s)
 }
 
 func main() {
 	sumService := SumService{}
 
 	s := jsonrpc.NewServer(jsonrpc.Options{})
-
-	s.UseGlobal(middleware_global.RealIP())
 	s.Use(middleware.Recovery())
 
 	s.Register("sum", sumService.Sum)

@@ -1,31 +1,41 @@
 package jsonrpc
 
 import (
+	"encoding/json"
 	"net/http"
 	"sync"
-
-	"github.com/goccy/go-json"
 )
 
 type RequestCtx struct {
-	R       *http.Request
-	ID      *string
-	Version string
-	params  json.RawMessage
-	mu      sync.RWMutex
-	Keys    map[string]interface{}
+	R *http.Request
+
+	ID     string
+	Params []byte
+
+	mu   sync.RWMutex
+	Keys map[string]interface{}
 }
 
-// Params decode request params
-// return ErrInvalidParams if can not decode it
-func (ctx *RequestCtx) Params(v interface{}) *Error {
-	if err := json.Unmarshal(ctx.params, v); err != nil {
-		return ErrInvalidParams()
+// GetParams decode params with standard encoding/json package.
+func (ctx *RequestCtx) GetParams(v interface{}) error {
+	if err := json.Unmarshal(ctx.Params, v); err != nil {
+		return err
 	}
+
 	return nil
 }
 
-// Set store a new key/value pair
+// Result encode json with standard encoding/json package.
+func (ctx *RequestCtx) Result(v interface{}) (Result, Error) {
+	result, err := json.Marshal(v)
+	if err != nil {
+		return nil, ErrInternalJSON()
+	}
+
+	return result, nil
+}
+
+// Set store a new key/value pair.
 func (ctx *RequestCtx) Set(key string, value interface{}) {
 	ctx.mu.Lock()
 	if ctx.Keys == nil {

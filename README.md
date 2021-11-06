@@ -1,6 +1,7 @@
 # JSON-RPC 2.0 Server for Golang
 
 ## Example
+
 ```go
 package main
 
@@ -10,17 +11,16 @@ import (
 
 	"github.com/lapitskyss/jsonrpc"
 	"github.com/lapitskyss/jsonrpc/middleware"
-	"github.com/lapitskyss/jsonrpc/middleware_global"
 )
 
 type SumService struct {
 }
 
-func (ss *SumService) Sum(ctx *jsonrpc.RequestCtx) (jsonrpc.Result, *jsonrpc.Error) {
+func (ss *SumService) Sum(ctx *jsonrpc.RequestCtx) (jsonrpc.Result, jsonrpc.Error) {
 	var sumRequest []int
-	err := ctx.Params(&sumRequest)
+	err := ctx.GetParams(&sumRequest)
 	if err != nil {
-		return nil, err
+		return nil, jsonrpc.ErrInvalidParamsJSON()
 	}
 
 	s := 0
@@ -28,15 +28,13 @@ func (ss *SumService) Sum(ctx *jsonrpc.RequestCtx) (jsonrpc.Result, *jsonrpc.Err
 		s += item
 	}
 
-	return s, nil
+	return ctx.Result(s)
 }
 
 func main() {
 	sumService := SumService{}
 
 	s := jsonrpc.NewServer(jsonrpc.Options{})
-
-	s.UseGlobal(middleware_global.RealIP())
 	s.Use(middleware.Recovery())
 
 	s.Register("sum", sumService.Sum)
@@ -45,27 +43,40 @@ func main() {
 
 	log.Fatal(http.ListenAndServe(":3000", nil))
 }
+
+
 ```
 
-### Curl request for example above
-```
+### Curl example
+
+Request
+
+```bash
 curl -H "Content-Type: application/json" \
   --request POST \
   --data '{"jsonrpc":"2.0","method":"sum","params":[1, 2, 3, 4],"id":1}' \
   http://localhost:3000/rpc
+```
 
- response for request:
+Response
 
+```bash
 {"jsonrpc":"2.0","id":1,"result":10}
 ```
 
-### Batch request
-```
+### Curl batch example
+
+Request
+
+```bash
 curl -H "Content-Type: application/json" \
   --request POST \
   --data '[{"jsonrpc":"2.0","method":"sum","params":[1, 2, 3, 4],"id":1}, {"jsonrpc":"2.0","method":"sum","params":[1, 2],"id":2}]' \
   http://localhost:3000/rpc
+```
 
-response for request:
+Response
 
+```bash
 [{"jsonrpc":"2.0","id":2,"result":3},{"jsonrpc":"2.0","id":1,"result":10}]
+```

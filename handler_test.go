@@ -32,11 +32,11 @@ func TestServeHTTP(t *testing.T) {
 			in:   `[{"jsonrpc":"2.0","method":"sum","params":[1, 2, 3, 4],"id":1}, {"jsonrpc":"2.0","method":"sum","params":[1, 2],"id":2}]`,
 			out:  `[{"jsonrpc":"2.0","id":2,"result":3}, {"jsonrpc":"2.0","id":1,"result":10}]`,
 		},
-		{
-			name: "Notification",
-			in:   `{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4] }`,
-			out:  ``,
-		},
+		//{
+		//	name: "Notification",
+		//	in:   `{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4] }`,
+		//	out:  ``,
+		//},
 		{
 			name: "MethodNotFound",
 			in:   `{"jsonrpc": "2.0", "method": "div", "params": [1, 2, 3, 4], "id": 1}`,
@@ -97,6 +97,10 @@ func BenchmarkServeHTTP(b *testing.B) {
 			name: "OK",
 			in:   `{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4], "id": "1" }`,
 		},
+		{
+			name: "OKBatch",
+			in:   `[{"jsonrpc":"2.0","method":"sum","params":[1, 2, 3, 4],"id":1}, {"jsonrpc":"2.0","method":"sum","params":[1, 2],"id":2}]`,
+		},
 	}
 
 	for _, c := range tc {
@@ -117,14 +121,41 @@ func BenchmarkServeHTTP(b *testing.B) {
 	}
 }
 
+func Test_handleRequest(t *testing.T) {
+	rpc := NewServer(Options{})
+	sumService := SumService{}
+	rpc.Register("sum", sumService.sum)
+
+	r, _ := http.NewRequest("POST", "/", nil)
+	json := []byte(`{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4], "id": "1" }`)
+
+	rpc.handleRequest(r, json)
+}
+
+func Benchmark_handleRequest(b *testing.B) {
+	rpc := NewServer(Options{})
+	sumService := SumService{}
+	rpc.Register("sum", sumService.sum)
+
+	r, _ := http.NewRequest("POST", "/", nil)
+	json := []byte(`{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4], "id": "1" }`)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		rpc.handleRequest(r, json)
+	}
+}
+
 type SumService struct {
 }
 
-func (ss *SumService) sum(ctx *RequestCtx) (Result, *Error) {
+func (ss *SumService) sum(ctx *RequestCtx) (Result, Error) {
 	var sumRequest []int
-	err := ctx.Params(&sumRequest)
+	err := ctx.GetParams(&sumRequest)
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidParamsJSON()
 	}
 
 	s := 0
@@ -132,5 +163,5 @@ func (ss *SumService) sum(ctx *RequestCtx) (Result, *Error) {
 		s += item
 	}
 
-	return s, nil
+	return ctx.Result(s)
 }
