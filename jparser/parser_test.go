@@ -1,7 +1,7 @@
 package jparser
 
 import (
-	"github.com/stretchr/testify/require"
+	"reflect"
 	"testing"
 )
 
@@ -10,7 +10,10 @@ var arr = []byte(`[{"jsonrpc":"2.0","method":"sum","params":[1],"id":1}, {"jsonr
 func TestArrayLength(t *testing.T) {
 	l := ArrayLength(arr)
 
-	require.Equal(t, 3, l)
+	if !reflect.DeepEqual(3, l) {
+		t.Errorf("Unexpected result. Expected %v. Got %v", 3, l)
+		t.FailNow()
+	}
 }
 
 func BenchmarkArrayLength(b *testing.B) {
@@ -24,9 +27,12 @@ func BenchmarkArrayLength(b *testing.B) {
 
 func TestArrayElement(t *testing.T) {
 	element := ArrayElement(arr, 1)
-	expected := []byte(`{"jsonrpc":"2.0","method":"sum","params":[1, 2],"id":2}`)
+	expected := `{"jsonrpc":"2.0","method":"sum","params":[1, 2],"id":2}`
 
-	require.Equal(t, expected, element)
+	if expected != string(element) {
+		t.Errorf("Unexpected result. Expected %v. Got %v", expected, string(element))
+		t.FailNow()
+	}
 }
 
 func BenchmarkArrayElement(b *testing.B) {
@@ -40,8 +46,14 @@ func BenchmarkArrayElement(b *testing.B) {
 
 func TestIsArray(t *testing.T) {
 	isArr := IsArray([]byte(` [1, 2]`))
-	require.Equal(t, true, isArr)
+	if !reflect.DeepEqual(true, isArr) {
+		t.Errorf("Unexpected result. Expected %v. Got %v", true, isArr)
+		t.FailNow()
+	}
 
 	isArr2 := IsArray([]byte(`{"jsonrpc":"2.0","method":"sum","params":[1, 2],"id":2}`))
-	require.Equal(t, false, isArr2)
+	if !reflect.DeepEqual(false, isArr2) {
+		t.Errorf("Unexpected result. Expected %v. Got %v", false, isArr2)
+		t.FailNow()
+	}
 }

@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/lapitskyss/jsonrpc/jparser"
-	"github.com/tidwall/gjson"
 )
 
 // ServeHTTP process incoming requests.
@@ -34,7 +33,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !gjson.ValidBytes(json) {
+	if err = jparser.ValidateBytes(json); err != nil {
 		sendParseError(w)
 		return
 	}

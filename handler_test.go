@@ -2,12 +2,12 @@ package jsonrpc
 
 import (
 	"bytes"
+	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestServeHTTP(t *testing.T) {
@@ -63,22 +63,24 @@ func TestServeHTTP(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			res, err := http.Post(ts.URL, "application/json", bytes.NewBufferString(c.in))
 			if err != nil {
-				require.NoError(t, err)
+				t.Errorf("Received unexpected error:\n%+v", err)
+				t.FailNow()
 			}
 
 			resp, err := ioutil.ReadAll(res.Body)
 			if err != nil {
-				require.NoError(t, err)
+				t.Errorf("Received unexpected error:\n%+v", err)
+				t.FailNow()
 			}
 			err = res.Body.Close()
 			if err != nil {
-				require.NoError(t, err)
+				t.Errorf("Received unexpected error:\n%+v", err)
+				t.FailNow()
 			}
 
-			if c.out == "" {
-				require.Equal(t, c.out, string(resp))
-			} else {
-				require.JSONEq(t, c.out, string(resp))
+			if !IsJSONEqual(c.out, string(resp)) {
+				t.Errorf("Unexpected result. Expected %v. Got %v", c.out, string(resp))
+				t.FailNow()
 			}
 		})
 	}
@@ -127,9 +129,15 @@ func Test_handleRequest(t *testing.T) {
 	rpc.Register("sum", sumService.sum)
 
 	r, _ := http.NewRequest("POST", "/", nil)
-	json := []byte(`{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4], "id": "1" }`)
+	j := []byte(`{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4], "id": "1" }`)
 
-	rpc.handleRequest(r, json)
+	res := rpc.handleRequest(r, j)
+	expected := `{"jsonrpc":"2.0","result":10,"id":"1"}`
+
+	if !IsJSONEqual(expected, string(res)) {
+		t.Errorf("Unexpected result. Expected %v. Got %v", expected, string(res))
+		t.FailNow()
+	}
 }
 
 func Benchmark_handleRequest(b *testing.B) {
@@ -138,14 +146,44 @@ func Benchmark_handleRequest(b *testing.B) {
 	rpc.Register("sum", sumService.sum)
 
 	r, _ := http.NewRequest("POST", "/", nil)
-	json := []byte(`{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4], "id": "1" }`)
+	j := []byte(`{"jsonrpc": "2.0", "method": "sum", "params": [1, 2, 3, 4], "id": "1" }`)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		rpc.handleRequest(r, json)
+		rpc.handleRequest(r, j)
 	}
+}
+
+func IsJSONEqual(expected string, actual string) bool {
+	if expected == "" {
+		return expected == actual
+	}
+
+	var e, a interface{}
+
+	err := json.Unmarshal([]byte(expected), &e)
+	if err != nil {
+		return false
+	}
+
+	err = json.Unmarshal([]byte(actual), &a)
+	if err != nil {
+		return false
+	}
+
+	exp, ok := e.([]byte)
+	if !ok {
+		return reflect.DeepEqual(e, a)
+	}
+
+	act, ok := a.([]byte)
+	if !ok {
+		return false
+	}
+
+	return string(exp) == string(act)
 }
 
 type SumService struct {
